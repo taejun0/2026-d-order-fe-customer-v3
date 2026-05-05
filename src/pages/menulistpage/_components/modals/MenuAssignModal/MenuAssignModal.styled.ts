@@ -188,6 +188,8 @@ export const Toast = styled.div`
   color: ${({ theme }) => theme.colors.White};
   position: fixed;
   top: 1rem;
+  left: 50%;
+  transform: translate(-50%, 0);
   width: calc(100% - 4.5rem);
   max-width: calc(540px - 4.5rem);
   z-index: 3;
