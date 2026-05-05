@@ -16,15 +16,6 @@ function orangeToastError(message: string) {
     toastId: STAFFCALL_TOAST_ID,
     icon: <img src={IMAGE_CONSTANTS.CHECK} alt="" />,
     closeButton: false,
-    style: {
-      backgroundColor: '#FF6E3F',
-      color: '#FAFAFA',
-      fontSize: '14px',
-      fontWeight: '800',
-      borderRadius: '8px',
-      padding: '0.75rem 0.875rem',
-      zIndex: 100,
-    },
   });
 }
 
@@ -34,15 +25,6 @@ function orangeToastSuccess(message: string) {
     toastId: STAFFCALL_TOAST_ID,
     icon: <img src={IMAGE_CONSTANTS.CHECK} alt="" />,
     closeButton: false,
-    style: {
-      backgroundColor: '#FF6E3F',
-      color: '#FAFAFA',
-      fontSize: '14px',
-      fontWeight: '800',
-      borderRadius: '8px',
-      padding: '0.75rem 0.875rem',
-      zIndex: 100,
-    },
   });
 }
 
@@ -55,6 +37,9 @@ interface TotalAccount {
 type Step = 'account' | 'confirm' | 'staffComing';
 
 const STAFFCALL_ACCEPT_TIMEOUT_MS = 90_000;
+const STAFFCALL_HEARTBEAT_MS = 30_000;
+const STAFFCALL_RECONNECT_MS = 3_000;
+const STAFFCALL_MAX_RECONNECT_ATTEMPTS = 5;
 
 function getWsBaseUrl(): string {
   const base = (import.meta.env.VITE_BASE_URL ?? '').replace(/\/+$/, '');
@@ -101,10 +86,33 @@ const SendMoneyModal = ({
 
   const wsRef = useRef<WebSocket | null>(null);
   const acceptTimeoutRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const heartbeatIntervalRef = useRef<ReturnType<typeof setInterval> | null>(
+    null,
+  );
+  const reconnectTimeoutRef = useRef<ReturnType<typeof setTimeout> | null>(
+    null,
+  );
+  const reconnectAttemptsRef = useRef(0);
+  const intentionalCloseRef = useRef(false);
   const [staffCallId, setStaffCallId] = useState<number | null>(null);
   const [subscribeToken, setSubscribeToken] = useState<string | null>(null);
   const lastStaffStatusRef = useRef<string | null>(null);
+  const clearHeartbeat = () => {
+    if (heartbeatIntervalRef.current) {
+      clearInterval(heartbeatIntervalRef.current);
+      heartbeatIntervalRef.current = null;
+    }
+  };
+  const clearReconnect = () => {
+    if (reconnectTimeoutRef.current) {
+      clearTimeout(reconnectTimeoutRef.current);
+      reconnectTimeoutRef.current = null;
+    }
+  };
   const closeWs = () => {
+    intentionalCloseRef.current = true;
+    clearReconnect();
+    clearHeartbeat();
     if (wsRef.current) {
       wsRef.current.close();
       wsRef.current = null;
@@ -117,12 +125,10 @@ const SendMoneyModal = ({
 
   useEffect(() => {
     if (!staffCallId || !subscribeToken) return;
-    // 이미 연결되어 있으면 재연결하지 않음
-    if (wsRef.current) return;
+    intentionalCloseRef.current = false;
+    clearReconnect();
 
     const wsUrl = `${getWsBaseUrl()}/ws/customer/staffcall`;
-    const ws = new WebSocket(wsUrl);
-    wsRef.current = ws;
 
     const cleanupTimers = () => {
       if (acceptTimeoutRef.current) {
@@ -144,62 +150,108 @@ const SendMoneyModal = ({
     // 최초 구독 이후에는 ACCEPTED 전까지 timeout 감시
     startAcceptTimeout();
 
-    ws.onopen = () => {
-      ws.send(
-        JSON.stringify({
-          type: 'SUBSCRIBE',
-          staff_call_id: staffCallId,
-          subscribe_token: subscribeToken,
-        }),
-      );
-    };
+    const connect = () => {
+      // 이미 연결돼 있으면 중복 연결 방지
+      if (wsRef.current) return;
+      const ws = new WebSocket(wsUrl);
+      wsRef.current = ws;
 
-    ws.onmessage = (evt) => {
-      try {
-        const msg = JSON.parse(String(evt.data)) as Record<string, unknown>;
-        if (msg?.type === 'STAFF_CALL_STATUS') {
-          const status = String(msg.status ?? '').toUpperCase();
-          if (status === 'ACCEPTED') {
-            lastStaffStatusRef.current = 'ACCEPTED';
-            cleanupTimers();
-            setStaffcallWaiting(false);
-            setStep('staffComing');
-          } else if (status === 'PENDING') {
-            // 서버 상태가 되돌아갈 수 있으므로 계속 추적
-            // ACCEPTED → PENDING 전환일 때만 1회 안내 (연속 PENDING 스팸 방지)
-            if (lastStaffStatusRef.current === 'ACCEPTED') {
-              orangeToastError('수락이 취소되었어요.');
+      ws.onopen = () => {
+        reconnectAttemptsRef.current = 0;
+
+        clearHeartbeat();
+        heartbeatIntervalRef.current = setInterval(() => {
+          if (wsRef.current?.readyState === WebSocket.OPEN) {
+            wsRef.current.send(JSON.stringify({ type: 'PING' }));
+          }
+        }, STAFFCALL_HEARTBEAT_MS);
+
+        ws.send(
+          JSON.stringify({
+            type: 'SUBSCRIBE',
+            staff_call_id: staffCallId,
+            subscribe_token: subscribeToken,
+          }),
+        );
+      };
+
+      ws.onmessage = (evt) => {
+        try {
+          const msg = JSON.parse(String(evt.data)) as Record<string, unknown>;
+          if (msg?.type === 'PONG') return;
+          if (msg?.type === 'SUBSCRIBED') {
+            console.log('[StaffCall][WS] ✅ SUBSCRIBED:', msg);
+            return;
+          }
+          if (msg?.type === 'STAFF_CALL_STATUS') {
+            console.log('[StaffCall][WS] STAFF_CALL_STATUS:', msg);
+            const status = String(msg.status ?? '').toUpperCase();
+            if (status === 'ACCEPTED') {
+              lastStaffStatusRef.current = 'ACCEPTED';
+              cleanupTimers();
+              setStaffcallWaiting(false);
+              setStep('staffComing');
+            } else if (status === 'PENDING') {
+              // 서버 상태가 되돌아갈 수 있으므로 계속 추적
+              // ACCEPTED → PENDING 전환일 때만 1회 안내 (연속 PENDING 스팸 방지)
+              if (lastStaffStatusRef.current === 'ACCEPTED') {
+                orangeToastError('수락이 취소되었어요.');
+              }
+              lastStaffStatusRef.current = 'PENDING';
+              startAcceptTimeout();
+              setStaffcallWaiting(true);
+              setStep('confirm');
+            } else if (status === 'DELETED') {
+              cleanupTimers();
+              orangeToastSuccess('요청이 취소되었어요.');
+              lastStaffStatusRef.current = null;
+              setStaffcallWaiting(false);
+              setStaffCallId(null);
+              setSubscribeToken(null);
+              closeWs();
+              setStep('account');
             }
-            lastStaffStatusRef.current = 'PENDING';
-            startAcceptTimeout();
-            setStaffcallWaiting(true);
+          }
+          if (msg?.type === 'ERROR') {
+            cleanupTimers();
+            orangeToastError('요청에 실패했어요. 다시 시도해 주세요.');
+            setStaffcallWaiting(false);
             setStep('confirm');
           }
+        } catch {
+          // ignore parse error
         }
-        if (msg?.type === 'ERROR') {
-          cleanupTimers();
-          orangeToastError('요청에 실패했어요. 다시 시도해 주세요.');
-          setStaffcallWaiting(false);
-          setStep('confirm');
+      };
+
+      ws.onclose = () => {
+        clearHeartbeat();
+        wsRef.current = null;
+        cleanupTimers();
+
+        if (intentionalCloseRef.current) return;
+        if (!staffCallId || !subscribeToken) return;
+
+        if (reconnectAttemptsRef.current < STAFFCALL_MAX_RECONNECT_ATTEMPTS) {
+          reconnectAttemptsRef.current += 1;
+          reconnectTimeoutRef.current = setTimeout(() => {
+            reconnectTimeoutRef.current = null;
+            connect();
+          }, STAFFCALL_RECONNECT_MS);
         }
-      } catch {
-        // ignore parse error
-      }
+      };
     };
 
-    ws.onclose = () => {
-      wsRef.current = null;
-      cleanupTimers();
-    };
+    connect();
 
     return () => {
       cleanupTimers();
-      if (wsRef.current) {
-        wsRef.current.close();
-        wsRef.current = null;
-      }
+      clearReconnect();
+      clearHeartbeat();
+      intentionalCloseRef.current = true;
+      if (wsRef.current) wsRef.current.close();
+      wsRef.current = null;
     };
-  }, [staffCallId, subscribeToken, step]);
+  }, [staffCallId, subscribeToken]);
 
   if (paymentLoading) {
     return (

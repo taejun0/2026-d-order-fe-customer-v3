@@ -1,7 +1,7 @@
-import { useEffect, useRef } from "react";
-import type { CartWsPayload, CartSnapshotData } from "../types/cartWs";
-import { useCartSnapshotStore } from "@stores/cartSnapshotStore";
-import { redirectToLoginAfterTableReset } from "@services/tableReEntry";
+import { useEffect, useRef } from 'react';
+import type { CartWsPayload, CartSnapshotData } from '../types/cartWs';
+import { useCartSnapshotStore } from '@stores/cartSnapshotStore';
+import { redirectToLoginAfterTableReset } from '@services/tableReEntry';
 
 const AUTH_FAILURE_CLOSE_CODE = 4001;
 const CART_HEARTBEAT_MS = 30_000;
@@ -9,9 +9,9 @@ const CART_RECONNECT_MS = 3_000;
 const MAX_RECONNECT_ATTEMPTS = 5;
 
 function getWsBaseUrl(): string {
-  const base = (import.meta.env.VITE_BASE_URL ?? "").replace(/\/+$/, "");
-  if (base.startsWith("https://")) return base.replace("https://", "wss://");
-  if (base.startsWith("http://")) return base.replace("http://", "ws://");
+  const base = (import.meta.env.VITE_BASE_URL ?? '').replace(/\/+$/, '');
+  if (base.startsWith('https://')) return base.replace('https://', 'wss://');
+  if (base.startsWith('http://')) return base.replace('http://', 'ws://');
   return base;
 }
 
@@ -22,8 +22,12 @@ function getWsBaseUrl(): string {
 export function useCartWebSocket(tableUsageId: string | null) {
   const setSnapshot = useCartSnapshotStore((s) => s.setSnapshot);
   const wsRef = useRef<WebSocket | null>(null);
-  const reconnectTimeoutRef = useRef<ReturnType<typeof setTimeout> | null>(null);
-  const heartbeatIntervalRef = useRef<ReturnType<typeof setInterval> | null>(null);
+  const reconnectTimeoutRef = useRef<ReturnType<typeof setTimeout> | null>(
+    null,
+  );
+  const heartbeatIntervalRef = useRef<ReturnType<typeof setInterval> | null>(
+    null,
+  );
   const reconnectAttempts = useRef(0);
   /** effect cleanup 시 의도적 close — 재연결 스케줄 방지 */
   const intentionalCloseRef = useRef(false);
@@ -59,7 +63,7 @@ export function useCartWebSocket(tableUsageId: string | null) {
         clearHeartbeat();
         heartbeatIntervalRef.current = setInterval(() => {
           if (wsRef.current?.readyState === WebSocket.OPEN) {
-            wsRef.current.send(JSON.stringify({ type: "PING" }));
+            wsRef.current.send(JSON.stringify({ type: 'PING' }));
           }
         }, CART_HEARTBEAT_MS);
       };
@@ -70,9 +74,9 @@ export function useCartWebSocket(tableUsageId: string | null) {
             string,
             unknown
           >;
-          const msgType = String(parsed?.type ?? "");
+          const msgType = String(parsed?.type ?? '');
 
-          if (msgType === "PONG") {
+          if (msgType === 'PONG') {
             return;
           }
 
@@ -91,12 +95,14 @@ export function useCartWebSocket(tableUsageId: string | null) {
             payload?.type === 'CART_RESET' &&
             (payload.data as { ended?: boolean } | null)?.ended === true
           ) {
-            console.warn('[CartWS] 🔄 테이블 초기화 감지 → 로그인 화면으로 이동');
+            console.warn(
+              '[CartWS] 🔄 테이블 초기화 감지 → 로그인 화면으로 이동',
+            );
             redirectToLoginAfterTableReset();
             return;
           }
 
-          if (payload?.data && typeof payload.data === "object") {
+          if (payload?.data && typeof payload.data === 'object') {
             setSnapshot(payload.data as CartSnapshotData);
           }
         } catch (err) {
@@ -106,7 +112,10 @@ export function useCartWebSocket(tableUsageId: string | null) {
 
       ws.onclose = (e) => {
         clearHeartbeat();
-        console.log('[CartWS] 🔌 연결 종료:', { code: e.code, reason: e.reason });
+        console.log('[CartWS] 🔌 연결 종료:', {
+          code: e.code,
+          reason: e.reason,
+        });
         wsRef.current = null;
 
         if (intentionalCloseRef.current) {
