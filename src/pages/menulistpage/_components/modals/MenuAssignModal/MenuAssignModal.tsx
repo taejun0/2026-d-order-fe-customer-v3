@@ -47,6 +47,7 @@ const MenuAssignModal = ({
 
   const minusIcon = isMin ? modal_no_minus : modal_minus;
   const plusIcon = isMax ? modal_no_plus : modal_plus;
+  const disableSubmit = (item.quantity ?? 0) <= 0 || count < 1 || count > item.quantity;
   return (
     <S.Wrapper>
       <S.BackWrap onClick={onClose} />
@@ -90,7 +91,11 @@ const MenuAssignModal = ({
               </S.QuantityButton>
             </S.QuantityBox>
           </S.Row2>
-          <S.SubmitButton disabled={isMax} $muted={!!isCartPending} onClick={onSubmit}>
+          <S.SubmitButton
+            disabled={disableSubmit}
+            $muted={!!isCartPending}
+            onClick={onSubmit}
+          >
             {MENULISTPAGE_CONSTANTS.ASSIGNMODAL.TEXT.DAM}
           </S.SubmitButton>
         </S.Col>

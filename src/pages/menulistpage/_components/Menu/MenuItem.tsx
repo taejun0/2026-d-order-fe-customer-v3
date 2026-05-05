@@ -15,6 +15,7 @@ interface ItemType {
   id: number;
   category: Category;
   soldOut: boolean;
+  soldOutReason?: 'stock' | 'maxInCart';
 }
 
 interface MenuItemProps {
@@ -39,9 +40,11 @@ const MenuItem = ({ item, onClick }: MenuItemProps) => {
   };
 
   const descriptionText = item.soldOut
-    ? item.category === 'tableFee'
-      ? '입금 되었습니다'
-      : 'SOLD OUT'
+    ? item.soldOutReason === 'maxInCart'
+      ? '이미 최대 수량을 담았어요'
+      : item.category === 'tableFee'
+        ? '입금 되었습니다'
+        : 'SOLD OUT'
     : isTableFeeAndFree
       ? 'FREE'
       : item.description;

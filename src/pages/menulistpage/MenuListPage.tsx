@@ -25,7 +25,7 @@ const MenulistPage = () => {
     selectedCategory,
     handleScrollTo,
     handleOpenModal,
-    selectedItem,
+    modalItem,
     isModalOpen,
     isModalOpen2,
     isClosing,
@@ -70,9 +70,9 @@ const MenulistPage = () => {
           onOpenModal={handleOpenModal}
         />
       </S.Container>
-      {isModalOpen && selectedItem && (
+      {isModalOpen && modalItem && (
         <MenuAssignModal
-          item={selectedItem}
+          item={modalItem}
           onClose={handleFirstModal}
           onSubmit={handleSubmitItem}
           isClosing={isClosing}

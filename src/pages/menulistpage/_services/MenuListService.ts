@@ -9,6 +9,8 @@ export type ApiMenuItem = {
   description: string;
   image: string | null;
   is_soldout: boolean;
+  /** 주문 가능 최대 수량(재고) */
+  stock?: number;
 };
 
 export type ApiSetItem = ApiMenuItem & {

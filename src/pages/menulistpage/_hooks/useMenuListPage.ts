@@ -8,9 +8,20 @@ import { MENULISTPAGE_CONSTANTS } from '../_constants/menulistpageconstants';
 import { MenuListService } from '../_services/MenuListService';
 import { cartApiV3 } from '@pages/shoppingCart/_api/cartApiV3';
 import { useCartSnapshotStore } from '@stores/cartSnapshotStore';
+import type { CartItem } from '../../../types/cartWs';
 import { sortByPriceDesc } from '../_utils/sortByPrice';
 
 const SCROLL_OFFSET = 120;
+const MAX_ORDER_QTY_FALLBACK = 99;
+
+function maxOrderQtyFromStock(stock: unknown): number {
+  if (stock == null) return MAX_ORDER_QTY_FALLBACK;
+  const n = Number(stock);
+  if (!Number.isFinite(n)) return MAX_ORDER_QTY_FALLBACK;
+  const floored = Math.floor(n);
+  if (floored < 0) return 0;
+  return floored;
+}
 
 type MenuCategory = 'tableFee' | 'set' | 'menu' | 'drink';
 interface BaseMenuItem {
@@ -33,6 +44,29 @@ interface SetMenuItem extends BaseMenuItem {
 }
 
 // type MenuItem = BaseMenuItem | SetMenuItem;
+
+function cartQtyForItem(
+  cartItems: CartItem[] | undefined,
+  item: { category: MenuCategory; id: number },
+): number {
+  if (!cartItems?.length) return 0;
+  if (item.category === 'set') {
+    return (
+      cartItems.find((i) => i.type === 'setmenu' && i.set_menu_id === item.id)
+        ?.quantity ?? 0
+    );
+  }
+  if (item.category === 'tableFee') {
+    return (
+      cartItems.find((i) => i.type === 'fee' && i.menu_id === item.id)
+        ?.quantity ?? 0
+    );
+  }
+  return (
+    cartItems.find((i) => i.type === 'menu' && i.menu_id === item.id)
+      ?.quantity ?? 0
+  );
+}
 
 const useMenuListPage = () => {
   const navigate = useNavigate();
@@ -72,10 +106,31 @@ const useMenuListPage = () => {
 
   const resetCount = () => setCount(1);
   const isMin = count <= 1;
-  const isMax = selectedItem ? count > selectedItem.quantity : false;
-  const isMax2 = selectedItem ? count >= selectedItem.quantity : false;
+  const inCartQty = selectedItem
+    ? cartQtyForItem(snapshot?.items, selectedItem)
+    : 0;
+  const maxAddable = selectedItem
+    ? Math.max(0, Number(selectedItem.quantity ?? 0) - inCartQty)
+    : 0;
+  const isMax = selectedItem ? count > maxAddable : false;
+  const isMax2 = selectedItem ? count >= maxAddable : false;
 
   const [isLoading, setIsLoading] = useState(true);
+
+  const menuItemsForView = menuItems.map((it: any) => {
+    const cap = Number(it?.quantity ?? 0);
+    if (!Number.isFinite(cap) || cap <= 0) return it;
+    const already = cartQtyForItem(snapshot?.items, it);
+    const remaining = Math.max(0, cap - already);
+    if (remaining <= 0) {
+      return {
+        ...it,
+        soldOut: true,
+        soldOutReason: it.soldOut ? 'stock' : 'maxInCart',
+      };
+    }
+    return it;
+  });
 
   useEffect(() => {
     const fetchData = async () => {
@@ -110,7 +165,7 @@ const useMenuListPage = () => {
             description: feeItem.description,
             price: feeItem.price,
             imageUrl: feeItem.image ?? NON_IMG,
-            quantity: 99,
+            quantity: maxOrderQtyFromStock(feeItem.stock),
             soldOut: feeItem.is_soldout,
             category: 'tableFee',
           };
@@ -127,7 +182,7 @@ const useMenuListPage = () => {
           originprice: s.origin_price,
           price: s.price,
           imageUrl: s.image ?? undefined,
-          quantity: 99,
+          quantity: maxOrderQtyFromStock(s.stock),
           soldOut: !!s.is_soldout,
           category: 'set',
           menuItems: s.menu_items ?? [],
@@ -143,7 +198,7 @@ const useMenuListPage = () => {
           description: m.description,
           price: m.price,
           imageUrl: m.image ?? undefined,
-          quantity: 99,
+          quantity: maxOrderQtyFromStock(m.stock),
           soldOut: !!m.is_soldout,
           category: 'menu' as const,
         }));
@@ -158,7 +213,7 @@ const useMenuListPage = () => {
           description: m.description,
           price: m.price,
           imageUrl: m.image ?? undefined,
-          quantity: 99,
+          quantity: maxOrderQtyFromStock(m.stock),
           soldOut: !!m.is_soldout,
           category: 'drink' as const,
         }));
@@ -188,6 +243,7 @@ const useMenuListPage = () => {
   };
 
   const handleIncrease = () => {
+    if (maxAddable <= 0) return;
     if (isMax2) {
       setShowToast(true);
       return;
@@ -254,6 +310,8 @@ const useMenuListPage = () => {
   const handleOpenModal = (item: any) => {
     if (item.category === 'tableFee' && item.soldOut) return;
     if (item.category === 'tableFee' && Number(item?.price ?? 0) === 0) return;
+    const alreadyInCart = cartQtyForItem(snapshot?.items, item);
+    if (alreadyInCart >= Number(item.quantity ?? 0)) return;
     setSelectedItem(item);
     resetCount();
     setIsModalOpen(true);
@@ -268,6 +326,10 @@ const useMenuListPage = () => {
       return;
     }
     if (count <= 0) return;
+    if (count > maxAddable) {
+      setShowToast(true);
+      return;
+    }
     if (isCartPending) {
       setPendingToast(true);
       return;
@@ -314,9 +376,12 @@ const useMenuListPage = () => {
     setIsModalOpen2(false);
   };
 
+  const modalItem =
+    selectedItem == null ? null : { ...selectedItem, quantity: maxAddable };
+
   return {
     isLoading,
-    menuItems,
+    menuItems: menuItemsForView,
     boothName,
     tableNum,
     cartCount,
@@ -325,6 +390,7 @@ const useMenuListPage = () => {
     handleScrollTo,
     handleOpenModal,
     selectedItem,
+    modalItem,
     isModalOpen,
     isModalOpen2,
     isClosing,
