@@ -13,6 +13,7 @@ import { useEffect, useState } from 'react';
 import { Menu } from './types/types';
 import CouponModal from './_modal/CouponModal';
 import useShoppingCartPage from './_hooks/useShoppingCartPage';
+import CartToast from './_components/CartToast';
 
 const ShoppingCartPage = () => {
   const navigate = useNavigate();
@@ -42,6 +43,7 @@ const ShoppingCartPage = () => {
     increaseQuantity,
     decreaseQuantity,
     deleteItem,
+    cartToastMessage,
     setIsCouponModal,
     isCouponModal,
     CheckCoupon,
@@ -187,6 +189,8 @@ const ShoppingCartPage = () => {
           />
         </S.DarkWrapper>
       )}
+
+      <CartToast message={cartToastMessage} />
     </S.Wrapper>
   );
 };

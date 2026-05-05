@@ -1,10 +1,25 @@
-import { useState, useMemo, useEffect, useCallback, useRef } from 'react';
+import {
+  useState,
+  useMemo,
+  useEffect,
+  useCallback,
+  useRef,
+} from 'react';
 import { useNavigate } from 'react-router-dom';
 import { ROUTE_CONSTANTS } from '@constants/RouteConstants';
 import { accountInfoType, Menu } from '../types/types';
 import { useCartSnapshotStore } from '@stores/cartSnapshotStore';
 import { cartApiV3 } from '../_api/cartApiV3';
 import type { CartItem } from '../../../types/cartWs';
+
+function getApiErrorMessage(err: unknown): string {
+  return (
+    (err as { response?: { data?: { message?: string } } })?.response?.data
+      ?.message ||
+    (err as Error)?.message ||
+    '요청에 실패했어요. 잠시 후 다시 시도해 주세요.'
+  );
+}
 
 function extractAccountFromObject(
   o: Record<string, unknown>,
@@ -67,6 +82,13 @@ function cartItemToMenu(item: CartItem): Menu {
 const useShoppingCartPage = () => {
   const navigate = useNavigate();
   const snapshot = useCartSnapshotStore((s) => s.snapshot);
+
+  const [cartToastMessage, setCartToastMessage] = useState<string | null>(null);
+
+  const showCartToast = useCallback((msg: string) => {
+    setCartToastMessage(msg);
+    window.setTimeout(() => setCartToastMessage(null), 2000);
+  }, []);
 
   const [errorMessage] = useState<string | null>(null);
   const [accountInfo, setAccountInfo] = useState<accountInfoType | null>(null);
@@ -221,6 +243,7 @@ const useShoppingCartPage = () => {
       await cartApiV3.updateQuantity(id, item.quantity + 1);
     } catch (err) {
       console.error(err);
+      showCartToast(getApiErrorMessage(err));
     }
   };
 
@@ -231,6 +254,7 @@ const useShoppingCartPage = () => {
       await cartApiV3.updateQuantity(id, item.quantity - 1);
     } catch (err) {
       console.error(err);
+      showCartToast(getApiErrorMessage(err));
     }
   };
 
@@ -239,6 +263,7 @@ const useShoppingCartPage = () => {
       await cartApiV3.deleteItem(id);
     } catch (err) {
       console.error(err);
+      showCartToast(getApiErrorMessage(err));
     }
   };
 
@@ -336,7 +361,10 @@ const useShoppingCartPage = () => {
       return res;
     } catch (err: unknown) {
       const axiosErr = err as {
-        response?: { status?: number; data?: { message?: string; data?: { error_code?: string } } };
+        response?: {
+          status?: number;
+          data?: { message?: string; data?: { error_code?: string } };
+        };
       };
       const status = axiosErr?.response?.status;
       const msg = axiosErr?.response?.data?.message;
@@ -394,6 +422,7 @@ const useShoppingCartPage = () => {
     increaseQuantity,
     decreaseQuantity,
     deleteItem,
+    cartToastMessage,
     setIsCouponModal,
     isCouponModal,
     CheckCoupon,
