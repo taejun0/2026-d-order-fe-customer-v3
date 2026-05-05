@@ -27,11 +27,12 @@ const ShoppingItem = ({
   const [imgSrc, setImgSrc] = useState(
     item.menu_image || DEFAULT_FOOD_IMAGE
   );
+  const isDefaultImage = imgSrc === DEFAULT_FOOD_IMAGE;
 
   return (
     <>
       <ShoppingItemWrapper>
-        <ImgWrapper>
+        <ImgWrapper $isDefaultImage={isDefaultImage}>
           <img
             src={imgSrc}
             alt="선택한 음식 사진"
@@ -126,9 +127,9 @@ const ShoppingItemWrapper = styled.div`
   }
 `;
 
-const ImgWrapper = styled.div`
+const ImgWrapper = styled.div<{ $isDefaultImage?: boolean }>`
   width: 30%;
-  aspect-ratio: 1/ 1;
+  aspect-ratio: 1 / 1;
   border-radius: 7px;
   display: flex;
   align-items: center;
@@ -138,6 +139,8 @@ const ImgWrapper = styled.div`
     width: 100%;
     height: 100%;
     border-radius: 7px;
+    object-fit: ${({ $isDefaultImage }) => ($isDefaultImage ? 'contain' : 'cover')};
+    object-position: center;
   }
 `;
 
